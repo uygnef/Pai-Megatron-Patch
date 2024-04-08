@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, List
 
 import torch
-
+import torch.distributed as dist
 from megatron.core.tensor_parallel.random import (
     get_cuda_rng_tracker,
     get_data_parallel_rng_tracker_name,
@@ -46,12 +46,14 @@ class Router(ABC, MegatronModule):
         self.moe_aux_loss_func = None
 
         # Initialize the gate weights.
+        params_dtype = torch.get_default_dtype() if config.params_dtype is None else config.params_dtype
         self.weight = torch.nn.Parameter(
-            torch.empty((self.config.num_moe_experts, self.config.hidden_size))
+            torch.empty((self.config.num_moe_experts, self.config.hidden_size), dtype=params_dtype)
         )
         with get_cuda_rng_tracker().fork(get_data_parallel_rng_tracker_name()):
             config.init_method(self.weight)
         setattr(self.weight, 'sequence_parallel', config.sequence_parallel)
+        setattr(self.weight, 'router', True)
 
     def gating(self, input: torch.Tensor):
         """Forward pass of the router gate.
@@ -101,7 +103,7 @@ class TopKRouter(Router):
     """Route each token to the top-k experts."""
 
     def __init__(
-        self, num_local_experts: int, local_expert_indices: List[int], config: TransformerConfig,
+        self, num_local_experts: int, local_expert_indices: List[int], config: TransformerConfig, layer_num=None,
     ) -> None:
         """Initialize the zero token dropping router.
 
@@ -115,6 +117,7 @@ class TopKRouter(Router):
         self.topk = self.config.moe_router_topk
         self.routing_type = self.config.moe_router_load_balancing_type
         self.moe_aux_loss_func = switch_load_balancing_loss_func
+        self.layer_num = layer_num
 
     def sinkhorn_load_balancing(self, logits: torch.Tensor):
         """Apply sinkhorn routing to the logits tensor.
@@ -244,7 +247,7 @@ class TopKRouter(Router):
             scores, indices = self.aux_loss_load_balancing(logits)
         elif self.routing_type is None:
             # A naive top-k routing without load balancing
-            top_logits, indices = torch.topk(logits, k=self.k, dim=1)
+            top_logits, indices = torch.topk(logits, k=self.topk, dim=1)
             scores = torch.softmax(top_logits, dim=-1, dtype=torch.float32).type_as(logits)
 
         return scores, indices
