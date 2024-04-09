@@ -18,6 +18,16 @@ from torch import Tensor
 from functools import partial
 from typing import Union
 
+# replace megatron core optimizer
+from megatron_patch.optimizer.distrib_optimizer import build_model_and_main_param_groups
+from megatron_patch.optimizer.optimizer import new_init
+
+from megatron.optimizer import distrib_optimizer as origin_distrib_optimizer
+from megatron.optimizer import optimizer as original_optimizer
+
+origin_distrib_optimizer.DistributedOptimizer.build_model_and_main_param_groups = build_model_and_main_param_groups
+original_optimizer.Float16OptimizerWithFloat16Params.__init__ = new_init
+
 from megatron import get_args
 from megatron import get_timers
 from megatron.core import mpu, tensor_parallel
@@ -29,7 +39,7 @@ from megatron.utils import (
     average_losses_across_data_parallel_group
 )
 from megatron.core.datasets.blended_megatron_dataset_builder import BlendedMegatronDatasetBuilder
-from megatron.training import pretrain
+from megatron_patch.training import pretrain
 from megatron.core.datasets.gpt_dataset import GPTDatasetConfig
 from megatron.core.datasets.gpt_dataset import GPTDataset
 
@@ -41,6 +51,7 @@ from megatron_patch.arguments import core_transformer_config_from_args
 from megatron_patch.model.mixtral.model import GPTModel
 from megatron_patch.model.mixtral.layer_specs import get_gpt_layer_with_transformer_engine_spec
 from megatron_patch.model.mixtral.transformer_config import TransformerConfig
+
 
 
 def grouped_gemm_hook(module, state_dict, prefix, local_metadata, strict, 

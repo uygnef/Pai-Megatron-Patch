@@ -1,19 +1,20 @@
 #!/bin/bash
 #sh run_pretrain_megatron_mixtral.sh dsw ../.. 0.125B 1 8 1e-5 1e-6 80 80 0 bf16 2 1 sel true true true true 100  /mnt/llama2-datasets/alpaca_data.json /mnt/mixtral-ckpts/Mixtral-8x7B-v0.1 10000000000 100000000 /mnt/test_mixtral_output
-
+#sh run_pretrain_megatron_mixtral.sh dsw ../.. 0.125B 1 2 1e-5 1e-6 20 20 0 bf16 2 1 sel true true true true 200  /mnt/dolphinfs/hdd_pool/docker/user/hadoop-hmart-waimai-rank/fengyu05/starship_job_submitter/test.json test_mixtral_output/checkpoint/dsw-pretrain-megatron-gpt3-0.125B-lr-1e-5-bs-1-seqlen-20-pr-bf16-tp-2-pp-1-ac-sel-do-true-sp-true-tt-10000000000-wt-100000000 10000000000 100000000 test_mixtral_output | tee a
 set -e
 ENV=$1
 MEGATRON_PATCH_PATH=$2
 MEGATRON_PATH=${MEGATRON_PATCH_PATH}/Megatron-LM-240126
-export PYTHONPATH=${MEGATRON_PATH}:${MEGATRON_PATCH_PATH}:$PYTHONPATH
+export PYTHONPATH=${MEGATRON_PATH}:${MEGATRON_PATCH_PATH}:$PYTHONPATH:/mnt/dolphinfs/hdd_pool/docker/user/hadoop-hmart-waimai-rank/fengyu05/starship_job_submitter/
 export CUDA_DEVICE_MAX_CONNECTIONS=1
+# export NCCL_DEBUG=INFO
 if [ $ENV = dsw ]; then
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=4,5,6,7
 MASTER_ADDR=localhost
 MASTER_PORT=$(shuf -n 1 -i 10000-65535)
 NNODES=1
 NODE_RANK=0
-GPUS_PER_NODE=8
+GPUS_PER_NODE=4
 TOTAL_GPUS=$(($GPUS_PER_NODE*$NNODES))
 
 elif [ $ENV = dlc ]; then
@@ -52,16 +53,16 @@ OUTPUT_BASEPATH=${24}
 
 if [ $MODEL_SIZE = 0.125B ]; then
 
-NUM_LAYERS=2
-HIDDEN_SIZE=4096
-NUM_ATTN_HEADS=32
-INTERMEDIATE_SIZE=14336
+NUM_LAYERS=1
+HIDDEN_SIZE=16
+NUM_ATTN_HEADS=4
+INTERMEDIATE_SIZE=16
 MPE=32768
 SLW=4096
 
 gqa_options=" \
 		    --group-query-attention \
-		    --num-query-groups 8"
+		    --num-query-groups 4"
 
 elif [ $MODEL_SIZE = 7B ]; then
 
@@ -190,7 +191,7 @@ megatron_options="  \
         --log-interval 1 \
         --eval-interval 10000 \
         --eval-iters 10 \
-        --save-interval ${SAVE_INTERVAL} \
+        --save-interval 10000 \
         --tensorboard-queue-size 1 \
         --tensorboard-dir ${TENSORBOARD_DIR} \
         --log-timers-to-tensorboard \
@@ -202,6 +203,9 @@ megatron_options="  \
         --no-load-rng \
         --num-workers 0 \
         --seed 1234 \
+        --attention-dropout 0.0 \
+        --hidden-dropout 0.0 \
+        --load-balance-interval 3 \
         --max-padding-length ${PAD_LEN} \
         --extra-vocab-size ${EXTRA_VOCAB_SIZE} \
         --patch-tokenizer-type MistralTokenizer \
@@ -211,8 +215,6 @@ megatron_options="  \
         --position-embedding-type rope \
         --untie-embeddings-and-output-weights \
         --disable-bias-linear \
-        --disable-bias-linear-fc \
-        --disable-bias-attn-fc \
         --normalization RMSNorm \
         --no-masked-softmax-fusion \
         --no-position-embedding \
